@@ -5,9 +5,6 @@ program
     .name("timm - Tactical Intervention Mod Manager")
     .description("A tool that allows for the quick installing and updating of mods for Tactical Intervention")
     .version("1.0")
-    .action((name, options, command) => {
-        console.log(command)
-    })
 
 program
     .configureOutput({
@@ -27,6 +24,7 @@ export let tacintDir = util.errorIfDirNotExists(`${workingDir}/tacint`)
 export let binDir = util.errorIfDirNotExists(`${workingDir}/bin`)
 export let mountDir = util.createDirIfNotExists(`${workingDir}/mapkit`)
 export let modsDir = util.createDirIfNotExists(`${workingDir}/mods`)
+export let tempDir = util.createDirIfNotExists(`${workingDir}/temp`)
 
 util.createConfig()
 util.checkGamePatched()
@@ -34,7 +32,7 @@ util.checkGamePatched()
 let conf = util.readConfig()
 
 if (!conf.gamePatched) {
-    console.log(util.warnColor("Your game is NOT patched! Before using any mods you must patch your game to support modded content!\nRun 'timm patch' to patch your game."))
+    console.log(util.errorColor("Your game is NOT patched! Before using any mods you must patch your game to support modded content!\nRun 'timm patch' to patch your game."))
 }
 
 program.command("patch")
