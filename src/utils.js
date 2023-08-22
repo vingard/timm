@@ -1,6 +1,8 @@
 import fs from "fs"
 import {program} from "commander"
+import fetch from "node-fetch"
 import * as core from "./index.js"
+import pjson from "../package.json" assert {type: "json"}
 
 const CONFIG_DEFAULT = {
     gamePatched: false,
@@ -86,26 +88,43 @@ export function checkGamePatched() {
     updateConfig(conf)
 }
 
-function getRemotePackage() {
+async function getRemotePackage() {
     let remotePackage
+    let remotePackageUrl = `${pjson.repository.url.replace("github.com", "raw.githubusercontent.com")}/main/package.json`
+    console.log(remotePackageUrl)
 
     try {
-        remotePackage = fs.readFileSync(core.configPath)
+        remotePackage = await fetch(remotePackageUrl)
     } catch(err) {
-        program.error(`Error reading the config file (${err})`)
+        program.error(`Error reading the remote package.json file (${err})`)
     }
 
     try {
-        return JSON.parse(configFile)
+        return await remotePackage.json()
     } catch(err) {
-        program.error(`Error parsing the config file (${err})`)
+        program.error(`Error parsing the remote package.json file (${err})`)
     }
 }
 
-function downloadPatch(url) {
-
+async function downloadPatch(url) {
+    let remotePackageUrl = repository.url
 }
 
-export function patchGame() {
+export async function patchGame() {
+    console.log("Patching game...")
+
+    // Get content download URL from remote
+    console.log("Getting remote 'package.json' file...")
+    let remotePackage = await getRemotePackage()
+
+    if (!remotePackage.patchedContentUrl) {
+        program.error("No 'patchedContentUrl' in remote package.json! Tell vin!")
+        return
+    }
+    
+    // Wait 1 second to prevent spam
+    await new Promise(resolve => setTimeout(resolve, 1000))
+
+    console.log(downloadUrl)
 
 }

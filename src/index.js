@@ -39,8 +39,8 @@ if (!conf.gamePatched) {
 
 program.command("patch")
     .description("Patches your game to allow modded content, this will include a ~5GB download and might take a while!")
-    .action((str, options) => {
-        util.patchGame()
+    .action(async (str, options) => {
+        await util.patchGame()
     })
 
 program.parse(process.argv)
