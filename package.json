@@ -6,7 +6,8 @@
   "main": "src/index.js",
   "type": "module",
   "scripts": {
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "build": "ncc build src -o build/_timm -m"
   },
   "author": "vin",
   "license": "ISC",

@@ -1,15 +1,13 @@
 import fs from "fs"
 import {program} from "commander"
 import * as core from "./index.js"
-import {createRequire} from "module"
-const require = createRequire(import.meta.url)
-let pjson = require("../package.json")
 import axios from "axios"
 import path from "path"
 import ProgressBar from "progress"
 import onezip from "onezip"
 import byteSize from "byte-size"
 
+const REPO_URL = "https://github.com/vingard/timm"
 const CONFIG_DEFAULT = {
     gamePatched: false,
     mods: []
@@ -175,7 +173,7 @@ export function checkGamePatched() {
 
 async function getRemotePackage() {
     let remotePackage
-    let remotePackageUrl = `${pjson.repository.url.replace("github.com", "raw.githubusercontent.com")}/main/package.json`
+    let remotePackageUrl = `${REPO_URL.replace("github.com", "raw.githubusercontent.com")}/main/package.json`
 
     try {
         remotePackage = await (await axios.get(remotePackageUrl)).data

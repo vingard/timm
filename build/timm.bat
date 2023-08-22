@@ -1,0 +1,1 @@
+_timm\node --no-warnings _timm\index.js %*

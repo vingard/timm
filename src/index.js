@@ -16,7 +16,7 @@ export let workingDir = process.cwd()
 let parentFolder = workingDir.substr(workingDir.lastIndexOf("\\") + 1) // Windows only but meh
 
 if (parentFolder != "Tactical Intervention") {
-    program.error("You must place timm.exe inside your 'Tactical Intervention' base folder!")
+    program.error("You must place timm.bat and the _timm folder inside your 'Tactical Intervention' base folder!")
 }
 
 export let configPath = `${workingDir}/timm.json`
@@ -39,10 +39,11 @@ program.command("patch")
     .description("Patches your game to allow modded content, this will include a ~5GB download and might take a while!")
     .option("--url", "Overrides the URL to the content .zip file")
     .action(async (options) => {
+        console.log("patch selected")
         await util.patchGame(options.url)
     })
 
-program.parse()
+program.parse(process.argv)
 
 // Check the program.args obj
 var NO_COMMAND_SPECIFIED = program.args.length === 0;
