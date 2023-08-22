@@ -1,11 +1,12 @@
 import fs from "fs"
-import {program} from "commander"
+import { program } from "commander"
 import * as core from "./index.js"
 import axios from "axios"
 import path from "path"
 import ProgressBar from "progress"
 import onezip from "onezip"
 import byteSize from "byte-size"
+import jetpack from "fs-jetpack"
 
 const REPO_URL = "https://github.com/vingard/timm"
 const CONFIG_DEFAULT = {
@@ -26,13 +27,13 @@ export function readConfig() {
 
     try {
         configFile = fs.readFileSync(core.configPath)
-    } catch(err) {
+    } catch (err) {
         program.error(`Error reading the config file (${err})`)
     }
 
     try {
         return JSON.parse(configFile)
-    } catch(err) {
+    } catch (err) {
         program.error(`Error parsing the config file (${err})`)
     }
 }
@@ -41,9 +42,11 @@ export function updateConfig(config) {
     let configFile
 
     try {
-        configFile = fs.writeFileSync(core.configPath, JSON.stringify(config, undefined, "  "))
+        console.log("updateConfin", config)
+        configFile = fs.writeFileSync(core.configPath, JSON.stringify(config, undefined, "  "), {overwrite: true})
+        console.log("writing to config", JSON.stringify(config, undefined, "  "))
         return true
-    } catch(err) {
+    } catch (err) {
         program.error(`Error writing to the config file (${err})`)
         return false
     }
@@ -51,7 +54,7 @@ export function updateConfig(config) {
 
 export function createDirIfNotExists(path) {
     if (!fs.existsSync(path)) {
-        fs.mkdirSync(path, {recursive: true})
+        fs.mkdirSync(path, { recursive: true })
     }
 
     return path
@@ -82,20 +85,21 @@ export function successColor(str) {
 
 async function downloadTempFile(url, name) {
     let resp
-    
+
     try {
         resp = await axios({
             url,
             method: "GET",
-            responseType: "stream"
+            responseType: "stream",
+            headers: { "Accept-Encoding": null }
         })
     } catch (err) {
         program.error(`Download failed! ${err}`)
     }
 
     // extract from response
-    const {data, headers} = resp
-    const totalLength = headers["content-length"] || headers["Content-Length"]
+    const { data, headers } = resp
+    const totalLength = headers["content-length"] || headers["Content-Length"] || 564276 // Wild guess??
     const progressBar = new ProgressBar("-> Downloading [:bar] (:curSize/:maxSize) :percent complete  (:etas seconds remaining)", {
         width: 44,
         complete: "=",
@@ -112,11 +116,11 @@ async function downloadTempFile(url, name) {
             curSize: byteSize(progressBar.curr)
         }))
         data.pipe(writer)
-    } catch(err) {
+    } catch (err) {
         program.error(`Download failed! ${err}`)
     }
 
-    return new Promise(function(resolve, reject) {
+    return new Promise(function (resolve, reject) {
         data.on("end", () => resolve())
     })
 }
@@ -124,7 +128,7 @@ async function downloadTempFile(url, name) {
 async function deleteTempFile(name) {
     try {
         fs.unlinkSync(path.resolve(core.tempDir, name))
-    } catch (err) {}
+    } catch (err) { }
 }
 
 async function extractArchive(archive, destination) {
@@ -132,7 +136,7 @@ async function extractArchive(archive, destination) {
 
     try {
         extract = onezip.extract(archive, destination)
-    } catch(err) {
+    } catch (err) {
         program.error(`Error extracting archive! ${err}`)
     }
 
@@ -152,7 +156,7 @@ async function extractArchive(archive, destination) {
         progressBar.update(perc / 100)
     })
 
-    return new Promise(function(resolve, reject) {
+    return new Promise(function (resolve, reject) {
         extract.on("end", () => resolve())
     })
 }
@@ -162,7 +166,7 @@ export function checkGamePatched() {
     try {
         fs.readFileSync(`${core.mountDir}/PATCHED`)
         patchMark = true
-    } catch(err) {}
+    } catch (err) { }
 
     let conf = readConfig()
     conf.gamePatched = patchMark
@@ -177,7 +181,7 @@ async function getRemotePackage() {
 
     try {
         remotePackage = await (await axios.get(remotePackageUrl)).data
-    } catch(err) {
+    } catch (err) {
         program.error(`Error reading the remote package.json file (${err})`)
     }
 
@@ -193,7 +197,7 @@ export async function patchGame(overrideUrl) {
     if (!overrideUrl) {
         console.log("Getting remote 'package.json' file...")
         let remotePackage = await getRemotePackage()
-    
+
         if (!remotePackage.patchedContentUrl) {
             program.error("No 'patchedContentUrl' in remote package.json! Tell vin!")
             return
@@ -204,7 +208,7 @@ export async function patchGame(overrideUrl) {
 
     const destination = core.mountDir
     const tempFileName = "patched_content.zip"
-    
+
     // Wait 1 second to prevent spam
     await new Promise(resolve => setTimeout(resolve, 1000))
 
@@ -238,7 +242,7 @@ export async function patchGame(overrideUrl) {
     // Write PATCHED file
     try {
         fs.writeFileSync(path.resolve(core.mountDir, "PATCHED"), "PATCHED BY Tactical Intervention Mod Manager")
-    } catch(err) {
+    } catch (err) {
         program.error(`Failed to write the PATCHED file! ${err}`)
     }
 
@@ -250,4 +254,123 @@ export async function patchGame(overrideUrl) {
     }
 
     console.log(successColor("Game patched successfully!"))
+}
+
+async function getModInfo(url) {
+    let modInfo
+    let modInfoUrl = `${url.replace("github.com", "raw.githubusercontent.com")}/main/mod.json`
+
+    try {
+        modInfo = await (await axios.get(modInfoUrl)).data
+    } catch (err) {
+        program.error(`Could not find a valid mod at ${url} (${err})`)
+    }
+
+    if (!modInfo.name) {
+        program.error("This mod does not provide a 'name' in its mod.json file, this is required!")
+    }
+
+    modInfo.version = modInfo.version || "0.0.1"
+    modInfo.url = url
+
+    return modInfo
+}
+
+export function isModURL(url) {
+    return url.startsWith("https://github.com")
+}
+
+export function tryToRemoveFile(path) {
+    if (fs.existsSync(path)) {
+        fs.unlinkSync(path)
+    }
+}
+
+export function tryToRemoveDirectory(path) {
+    if (fs.existsSync(path)) {
+        fs.rmSync(path, { recursive: true, force: true })
+    }
+}
+
+function getDirectories(path) {
+    return fs.readdirSync(path).filter(function (file) {
+        return fs.statSync(path + '/' + file).isDirectory()
+    })
+}
+
+async function gitFileFix(pathTo) {
+    let dirs = getDirectories(pathTo)
+
+    if (!dirs[0]) {
+        program.error("Git file fix has gone wrong!")
+    }
+
+    let source = dirs[0]
+
+    // This is a stupid hack...
+    jetpack.move(path.resolve(pathTo, source), pathTo+"_tmp", {overwrite: true})
+    jetpack.move(pathTo+"_tmp", pathTo, {overwrite: true})
+}
+
+export async function installMod(url) {
+    // Get mod.json file info
+    // get title, version, store in timm.json mods
+    let mod = await getModInfo(url)
+    let modPath = path.resolve(core.modsDir, mod.name)
+    let modTempFileName = `${mod.name}.zip`
+
+    // If mod is already installed prompt?
+
+    console.log(`Installing ${mod.name} (${mod.version}):`)
+
+    // Download archive
+    console.log(`Downloading...`)
+    await downloadTempFile(`${mod.url}/archive/refs/heads/main.zip`, modTempFileName)
+
+    // Make mods folder and remove old install
+    tryToRemoveDirectory(modPath)
+    await createDirIfNotExists(modPath)
+
+    // Extract to mods folder
+    console.log(`Extracting...`)
+    await extractArchive(path.resolve(core.tempDir, modTempFileName), modPath)
+
+    // Move all files up one directory and cleanup the mess
+    await gitFileFix(modPath)
+
+    // Remove mod info and git files from mod
+    console.log("Finishing up...")
+    tryToRemoveFile(path.resolve(modPath, ".gitignore"))
+    tryToRemoveFile(path.resolve(modPath, ".gitattributes"))
+    tryToRemoveFile(path.resolve(modPath, "mod.json"))
+
+    tryToRemoveDirectory(path.resolve(modPath, ".git"))
+
+    // Cleanup archive
+    await deleteTempFile(modTempFileName)
+
+    // Append to timm.json the mod info
+    let config = readConfig()
+
+    const foundIndex = config.mods.findIndex(x => x.name === mod.name)
+
+    // If mod exists replace otherwise append
+    if (foundIndex === -1) {
+        config.mods.push(mod)
+    } else {
+        config.mods[foundIndex] = mod
+    }
+    
+    updateConfig(config)
+
+    console.log(successColor(`${mod.name} (${mod.version}) was installed succesfully!`))
+
+    return mod
+}
+
+export async function mountMod(mod, mounted) {
+    console.log("Mount", mod, mounted)
+
+    // Will need to make a recursive function to manually symlink each file i think
+    jetpack.symlink(core.mountDir, path.resolve(core.modsDir, "symtest"))
 }

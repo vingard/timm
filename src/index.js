@@ -1,5 +1,6 @@
 import {program} from "commander"
 import * as util from "./utils.js"
+import normalizeUrl from "normalize-url"
 
 program
     .name("timm - Tactical Intervention Mod Manager")
@@ -37,10 +38,28 @@ if (!conf.gamePatched) {
 
 program.command("patch")
     .description("Patches your game to allow modded content, this will include a ~5GB download and might take a while!")
-    .option("--url", "Overrides the URL to the content .zip file")
+    .option("--url [url]", "Overrides the URL to the content .zip file")
     .action(async (options) => {
-        console.log("patch selected")
         await util.patchGame(options.url)
+    })
+
+program.command("install")
+    .description("Installs a mod from a remote GitHub repository.")
+    .argument("<url>", "The URL to the mods GitHub repoistory")
+    .option("-M, --mount [mount]", "Should we automatically mount this mod?", true)
+    .action(async (url, options) => {
+        url = normalizeUrl(url, {defaultProtocol: "https"})
+
+        if (!util.isModURL(url)) {
+            program.error("The URL you have provided is invalid. It should be a URL to a github.com respository.")
+            return
+        }
+
+        let mod = await util.installMod(url)
+
+        if (options.mount) {
+            await util.mountMod(mod.name, true)
+        }
     })
 
 program.parse(process.argv)

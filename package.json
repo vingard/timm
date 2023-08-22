@@ -19,6 +19,8 @@
     "axios": "^1.4.0",
     "byte-size": "^8.1.1",
     "commander": "^11.0.0",
+    "fs-jetpack": "^5.1.0",
+    "normalize-url": "^8.0.0",
     "onezip": "^5.0.0",
     "progress": "^2.0.3"
   }
