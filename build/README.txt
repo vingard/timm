@@ -7,7 +7,7 @@ USING TIMM (AND PATCHING YOUR GAME)
 3. You should see that TIMM has loaded. You can now patch your game by running the 'timm patch' command.
 4. For help with other features and commands, run 'timm --help'
 
-INSTALLING/UPDATING/REMOVING MODS (EASY MODE)
+INSTALLING/UPDATING/MOUNTING/UNMOUNTING/REMOVING MODS (EASY MODE)
 - This method is for novice users, it will over-explain each step, using the command line might be better for more advanced users
 
 1. Make sure the timm command prompt is open.
@@ -17,4 +17,5 @@ INSTALLING/UPDATING/REMOVING MODS (EASY MODE)
 INSTALL MODS (COMMAND LINE)
 1. Make sure the timm command prompt is open.
 2. Run 'timm install MOD_GITHUB_REPO_URL'
-3. Run 'timm mount latest'
+
+All other commands can be used in the command line too.

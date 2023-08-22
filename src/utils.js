@@ -42,9 +42,7 @@ export function updateConfig(config) {
     let configFile
 
     try {
-        console.log("updateConfin", config)
         configFile = fs.writeFileSync(core.configPath, JSON.stringify(config, undefined, "  "), {overwrite: true})
-        console.log("writing to config", JSON.stringify(config, undefined, "  "))
         return true
     } catch (err) {
         program.error(`Error writing to the config file (${err})`)
@@ -369,8 +367,6 @@ export async function installMod(url) {
 }
 
 export async function mountMod(mod, mounted) {
-    console.log("Mount", mod, mounted)
-
     // Will need to make a recursive function to manually symlink each file i think
     jetpack.symlink(core.mountDir, path.resolve(core.modsDir, "symtest"))
 }
