@@ -1,0 +1,20 @@
+{
+  "name": "timm",
+  "version": "1.0.0",
+  "description": "Tactical Intervention Mod Manager",
+  "patchedContent": "https://www.dropbox.com/scl/fi/1vigb7jpqvz0ztti1kiww/ti_patch.zip?rlkey=gsc2fdk6cxrxsqvpyv7iagd28&dl=1",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "author": "vin",
+  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/vingard/timm"
+  },
+  "dependencies": {
+    "commander": "^11.0.0"
+  }
+}
