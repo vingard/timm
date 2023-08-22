@@ -37,11 +37,12 @@ if (!conf.gamePatched) {
 
 program.command("patch")
     .description("Patches your game to allow modded content, this will include a ~5GB download and might take a while!")
-    .action(async (str, options) => {
-        await util.patchGame()
+    .option("--url", "Overrides the URL to the content .zip file")
+    .action(async (options) => {
+        await util.patchGame(options.url)
     })
 
-program.parse(process.argv)
+program.parse()
 
 // Check the program.args obj
 var NO_COMMAND_SPECIFIED = program.args.length === 0;

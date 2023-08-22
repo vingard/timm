@@ -186,16 +186,22 @@ async function getRemotePackage() {
     return remotePackage
 }
 
-export async function patchGame() {
+export async function patchGame(overrideUrl) {
     console.log("Patching game...")
 
-    // Get content download URL from remote
-    console.log("Getting remote 'package.json' file...")
-    let remotePackage = await getRemotePackage()
+    let url = overrideUrl
 
-    if (!remotePackage.patchedContentUrl) {
-        program.error("No 'patchedContentUrl' in remote package.json! Tell vin!")
-        return
+    // Get content download URL from remote
+    if (!overrideUrl) {
+        console.log("Getting remote 'package.json' file...")
+        let remotePackage = await getRemotePackage()
+    
+        if (!remotePackage.patchedContentUrl) {
+            program.error("No 'patchedContentUrl' in remote package.json! Tell vin!")
+            return
+        }
+
+        url = remotePackage.patchedContentUrl
     }
 
     const destination = core.mountDir
@@ -206,7 +212,7 @@ export async function patchGame() {
 
     // Download patched content to a temp file
     console.log("Downloading patched content:")
-    await downloadTempFile(remotePackage.patchedContentUrl, tempFileName)
+    await downloadTempFile(url, tempFileName)
 
     // Extract
     console.log("Extracting patched content...")
