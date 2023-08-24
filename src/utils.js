@@ -7,6 +7,7 @@ import ProgressBar from "progress"
 import onezip from "onezip"
 import byteSize from "byte-size"
 import jetpack from "fs-jetpack"
+import { EventEmitter } from "events"
 
 const REPO_URL = "https://github.com/vingard/timm"
 const CONFIG_DEFAULT = {
@@ -204,7 +205,7 @@ export async function patchGame(overrideUrl) {
         url = remotePackage.patchedContentUrl
     }
 
-    const destination = core.mountDir
+    const destination = core.baseContentDir
     const tempFileName = "patched_content.zip"
 
     // Wait 1 second to prevent spam
@@ -268,6 +269,15 @@ async function getModInfo(url) {
         program.error("This mod does not provide a 'name' in its mod.json file, this is required!")
     }
 
+    if (typeof modInfo.name != "string") {
+        program.error("Mod 'name' must be a string!")
+    }
+
+    if (modInfo.version && typeof modInfo.version != "string") {
+        program.error("Mod 'version' must be a string!")
+    }
+
+    modInfo.name = modInfo.name.toLowerCase()
     modInfo.version = modInfo.version || "0.0.1"
     modInfo.url = url
 
@@ -276,6 +286,27 @@ async function getModInfo(url) {
 
 export function isModURL(url) {
     return url.startsWith("https://github.com")
+}
+
+export function getMod(name) {
+    let config = readConfig()
+    let i = config.mods.findIndex(x => x.name === name)
+
+    return config.mods[i]
+}
+
+export function getAllMods() {
+    let config = readConfig()
+    return config.mods
+}
+
+export function getMountManifest() {
+    let config = readConfig()
+    return config.mountManifest || {}
+}
+
+export function getModLoadOrder(mod) {
+    return mod.priority || 0
 }
 
 export function tryToRemoveFile(path) {
@@ -366,7 +397,266 @@ export async function installMod(url) {
     return mod
 }
 
-export async function mountMod(mod, mounted) {
-    // Will need to make a recursive function to manually symlink each file i think
-    jetpack.symlink(core.mountDir, path.resolve(core.modsDir, "symtest"))
+export async function mountFile(filePath, from, to) {
+    await jetpack.dirAsync(path.resolve(to, path.dirname(filePath))) // creates a directory to this file in the to dir
+
+    let fromFull = path.resolve(from, filePath)
+    let toFull = path.resolve(to, filePath)
+
+    // If link file exists, we'll remove it and replace
+    if (await jetpack.existsAsync(toFull)) {
+        await jetpack.removeAsync(toFull)
+    }
+
+    try {
+        // create symlink
+        await jetpack.symlinkAsync(
+            fromFull,
+            toFull
+        )
+    } catch(err) {
+        if (err.code === "EPERM") {
+            program.error(`Mounting permissions error! ${err}`)
+        } else {
+            program.error(`Error mounting file! ${err}`)
+        }
+    }
 }
+
+/** Un-mounts a file, if another file was mounted to replace it, this method will return true */
+export async function unMountFile(filePath, from, to, modName) {
+    let toFull = path.resolve(to, filePath)
+
+    if (await jetpack.existsAsync(toFull)) {
+        await jetpack.removeAsync(toFull)
+    }
+
+    // Now, we should work out if something else needs to be mounted here. Honestly this should probably be moved out of this function at some point.
+
+    // First, let's get all the mods, sorted by priority
+    let mods = getAllMods()
+    let sortedMods = [...mods].sort((a, b) => b.priority - a.priority)
+
+    for (const mod of sortedMods) {
+        if (!mod.mounted || mod.name === modName) {
+            continue
+        }
+
+        if (mod.mounted && mod.claims?.[filePath]) { // if any mod has a claim to a file, mount it
+            await mountFile(filePath, path.resolve(core.modsDir, mod.name), to)
+            
+            // Update the config to reflect this change
+            let conf = readConfig()
+            conf.mountManifest[filePath] = mod.name
+            conf.mods[getModIndex(conf, mod.name)].claims[filePath] = true
+            updateConfig(conf)
+            return true
+        }
+    }
+
+    // If not, we'll check if the base content has a claim
+    let baseContentFs = jetpack.cwd(core.baseContentDir)
+    if (await baseContentFs.existsAsync(filePath) === "file") {
+        await mountFile(filePath, core.baseContentDir, to)
+        return true
+    }
+
+    return false
+}
+
+// This method exists to cleanup leftover directories that are empty from unmounting
+async function cleanupModContentLeftovers(from, to) {
+    const fromFs = jetpack.cwd(from)
+    const toFs = jetpack.cwd(to)
+    let fromDirs = fromFs.find(".", {directories: true, files: false, recursive: false})
+
+    for (const dirPath of fromDirs) {
+        // If toFs dir is not empty...
+        if (toFs.list(dirPath)?.length > 0) {
+            // Cleanup this dir
+            cleanupModContentLeftovers(
+                path.resolve(from, dirPath),
+                path.resolve(to, dirPath)
+            )
+
+            // If after cleanup, this dir is still not empty, then ignore
+            if (toFs.list(dirPath)?.length > 0) {
+                continue
+            }
+        }
+
+        // Remove empty folder
+        toFs.remove(dirPath)
+    }
+}
+
+export function mountContent(content, from, to) {
+    const emitter = new EventEmitter()
+    let entries = Object.entries(content)
+    let i = 1
+    
+    {(async () => {
+        emitter.emit("start", entries.length)
+
+        for (const [filePath, modName] of entries) {
+            await mountFile(filePath, from, to, modName)
+            emitter.emit("progress", i++)
+        }
+
+        emitter.emit("end", i)
+    })()}
+
+    return [emitter, entries.length]
+}
+
+export async function unMountContent(content, from, to) {
+    for (const [filePath, modName] of Object.entries(content)) {
+        await unMountFile(filePath, from, to, modName)
+    }
+
+    cleanupModContentLeftovers(from, to)
+}
+
+export function getModIndex(config, modName) {
+    return config.mods.findIndex(x => x.name === modName)
+}
+
+export async function unMountMod(mod) {
+    const modFolder = path.resolve(core.modsDir, mod.name)
+    const modFs = jetpack.cwd(modFolder)
+
+    let manifest = getMountManifest()
+    let content = {}
+
+    for (const [k, v] of Object.entries(manifest)) {
+        if (v === mod.name) {
+            content[k] = v
+        }
+    }
+
+    await unMountContent(content, modFolder, core.mountDir)
+
+    for (const [k, v] of Object.entries(manifest)) {
+        if (v === mod.name) {
+            manifest[k] = undefined
+        }
+    }
+
+    let config = readConfig()
+    let modIndex = getModIndex(config, mod.name)
+    config.mountManifest = manifest
+    config.mods[modIndex].mounted = false
+    config.mods[modIndex].claims = undefined
+    updateConfig(config)
+}
+
+export async function mountBaseContent() {
+    const baseContentFs = jetpack.cwd(core.baseContentDir)
+    const mountFs = jetpack.cwd(core.mountDir)
+    const contentsTemp = baseContentFs.find(".", {directories: false, recursive: true})
+    const contents = {}
+
+    const progressBarPrep = new ProgressBar("-> Preparing to mount [:bar] :percent complete  (:etas seconds remaining)", {
+        width: 44,
+        complete: "=",
+        incomplete: " ",
+        renderThrottle: 1,
+        total: contentsTemp.length
+    })
+
+    for (const filePath of contentsTemp) {
+        if (mountFs.exists(filePath) !== "file") {
+            contents[filePath] = "_BaseGameContent"
+        }
+
+        progressBarPrep.tick(1)
+    }
+
+    const [emitter, totalFiles] = mountContent(contents, core.baseContentDir, core.mountDir)
+    const progressBar = new ProgressBar("-> Mounting [:bar] (:curSize/:maxSize) :percent complete  (:etas seconds remaining)", {
+        width: 44,
+        complete: "=",
+        incomplete: " ",
+        renderThrottle: 1,
+        total: totalFiles
+    })
+
+    emitter.on("progress", (totalCompleted) => progressBar.tick(1, {
+        maxSize: totalFiles,
+        curSize: totalCompleted
+    }))
+
+    return new Promise(function (resolve, reject) {
+        emitter.on("end", () => resolve())
+    })
+}
+
+export async function mountMod(mod, mounted) {
+    const modFolder = path.resolve(core.modsDir, mod.name)
+    const modFs = jetpack.cwd(modFolder)
+    const modContentsTemp = modFs.find(".", {directories: false, recursive: true})
+
+    let modContents = {}
+    for (const filePath of modContentsTemp) {
+        modContents[path.normalize(filePath)] = mod.name
+    }
+
+    let mods = getAllMods()
+    let manifest = getMountManifest()
+    let manifestDiff = {}
+    let claims = {}
+    let myPriority = getModLoadOrder(mod)
+
+    for (const [k, v] of Object.entries(modContents)) {
+        claims[k] = false
+
+        // If the mounted file has conflict
+        if (manifest[k]) {
+            let ownerMod = mods[manifest[k]]
+
+            if (ownerMod) {
+                // If the owner mod has greater or (equal to load order - however equal to should never happen ideally)
+                if (getModLoadOrder(ownerMod) >= myPriority) {
+                    continue
+                }
+            }
+        }
+
+        // Mount file
+        manifest[k] = v
+        manifestDiff[k] = v
+        claims[k] = true
+    }
+
+    // Mount the difference from the mods local folder into the mountDir
+    await (async () => {
+        const [emitter, totalFiles] = mountContent(manifestDiff, modFolder, core.mountDir)
+        const progressBar = new ProgressBar("-> Mounting [:bar] (:curSize/:maxSize) :percent complete  (:etas seconds remaining)", {
+            width: 44,
+            complete: "=",
+            incomplete: " ",
+            renderThrottle: 1,
+            total: totalFiles
+        })
+    
+        emitter.on("progress", (totalCompleted) => progressBar.tick(1, {
+            maxSize: totalFiles,
+            curSize: totalCompleted
+        }))
+
+        return new Promise(function (resolve, reject) {
+            emitter.on("end", () => resolve())
+        })
+    })()
+
+    let config = readConfig()
+    let modIndex = getModIndex(config, mod.name)
+    config.mountManifest = manifest
+    config.mods[modIndex].mounted = true
+    config.mods[modIndex].claims = claims
+    updateConfig(config)
+}
+
+// TODO: Create shortcut to tacint_mapkit lolool https://www.npmjs.com/package/windows-shortcuts
+// blueprintjs + electron?
+// auto CFG?

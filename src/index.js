@@ -26,6 +26,7 @@ export let binDir = util.errorIfDirNotExists(`${workingDir}/bin`)
 export let mountDir = util.createDirIfNotExists(`${workingDir}/mapkit`)
 export let modsDir = util.createDirIfNotExists(`${workingDir}/mods`)
 export let tempDir = util.createDirIfNotExists(`${workingDir}/temp`)
+export let baseContentDir = util.createDirIfNotExists(`${workingDir}/base_content`)
 
 util.createConfig()
 util.checkGamePatched()
@@ -60,6 +61,36 @@ program.command("install")
         if (options.mount) {
             await util.mountMod(mod.name, true)
         }
+    })
+
+program.command("mount")
+    .description("Mounts a mod to your game.")
+    .argument("<modName>", "The mod name to mount")
+    .action(async (modName, options) => {
+        let mod = util.getMod(modName)
+        if (!mod) {
+            program.error(`The mod '${modName}' does not exist.`)
+        }
+
+        await util.mountMod(mod)
+    })
+
+program.command("mount_basecontent")
+    .description("Mounts the base content to your game. This is done automatically.")
+    .action(async (modName, options) => {
+        await util.mountBaseContent()
+    })
+
+program.command("unmount")
+    .description("Un-mounts a mod from your game.")
+    .argument("<modName>", "The mod name to un-mount")
+    .action(async (modName, options) => {
+        let mod = util.getMod(modName)
+        if (!mod) {
+            program.error(`The mod '${modName}' does not exist.`)
+        }
+
+        await util.unMountMod(mod)
     })
 
 program.parse(process.argv)
