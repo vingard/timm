@@ -120,7 +120,7 @@ async function downloadTempFile(url, name) {
     }
 
     return new Promise(function (resolve, reject) {
-        data.on("end", () => resolve())
+        data.once("end", () => resolve())
     })
 }
 
@@ -147,7 +147,7 @@ async function extractArchive(archive, destination) {
         total: 100
     })
 
-    extract.on("error", (err) => {
+    extract.once("error", (err) => {
         program.error(`Error extracting archive! ${err}`)
     })
 
@@ -156,7 +156,7 @@ async function extractArchive(archive, destination) {
     })
 
     return new Promise(function (resolve, reject) {
-        extract.on("end", () => resolve())
+        extract.once("end", () => resolve())
     })
 }
 
@@ -397,11 +397,13 @@ export async function installMod(url) {
     return mod
 }
 
-export async function mountFile(filePath, from, to) {
+export async function mountFile(filePath, from, to, modName) {
     await jetpack.dirAsync(path.resolve(to, path.dirname(filePath))) // creates a directory to this file in the to dir
 
     let fromFull = path.resolve(from, filePath)
     let toFull = path.resolve(to, filePath)
+    let manifest = getMountManifest()
+    let mods = getAllMods()
 
     // If link file exists, we'll remove it and replace
     if (await jetpack.existsAsync(toFull)) {
@@ -420,6 +422,18 @@ export async function mountFile(filePath, from, to) {
         } else {
             program.error(`Error mounting file! ${err}`)
         }
+    }
+
+    if (manifest[filePath]) {
+        let conf = readConfig()
+        let otherMod = mods[getModIndex(conf, manifest[filePath])] // the mod being overwritten
+
+        if (otherMod && otherMod.name !== modName && otherMod.claims) {
+            // the other mod has been booted off this symlink
+            // Update the config to reflect this change
+            conf.mods[getModIndex(conf, otherMod.name)].claims[filePath] = false
+            updateConfig(conf)
+        } 
     }
 }
 
@@ -442,7 +456,7 @@ export async function unMountFile(filePath, from, to, modName) {
             continue
         }
 
-        if (mod.mounted && mod.claims?.[filePath]) { // if any mod has a claim to a file, mount it
+        if (mod.mounted && mod.claims?.[filePath] !== undefined) { // if any mod has a claim to a file, mount it
             await mountFile(filePath, path.resolve(core.modsDir, mod.name), to)
             
             // Update the config to reflect this change
@@ -453,6 +467,14 @@ export async function unMountFile(filePath, from, to, modName) {
             return true
         }
     }
+
+    // TODO: Stop editing the manifest from within the unmounting util methods
+    // move it into the unMount mod loop to make it consistent and more efficient!
+
+    // At this stage, no mod has a claim, so the manifest should be cleared
+    let conf = readConfig()
+    conf.mountManifest[filePath] = undefined
+    updateConfig(conf)
 
     // If not, we'll check if the base content has a claim
     let baseContentFs = jetpack.cwd(core.baseContentDir)
@@ -495,16 +517,19 @@ export function mountContent(content, from, to) {
     let entries = Object.entries(content)
     let i = 1
     
-    {(async () => {
-        emitter.emit("start", entries.length)
+    // TODO: Update ALL other emitter systems to follow process.nextTick to avoid a bug
+    process.nextTick(() => {(
+        async () => {
+            emitter.emit("start", entries.length)
 
-        for (const [filePath, modName] of entries) {
-            await mountFile(filePath, from, to, modName)
-            emitter.emit("progress", i++)
+            for (const [filePath, modName] of entries) {
+                await mountFile(filePath, from, to, modName)
+                emitter.emit("progress", i++)
+            }
+
+            emitter.emit("end", i)
         }
-
-        emitter.emit("end", i)
-    })()}
+    )()})
 
     return [emitter, entries.length]
 }
@@ -536,6 +561,7 @@ export async function unMountMod(mod) {
 
     await unMountContent(content, modFolder, core.mountDir)
 
+    // TODO: Fix this so it loops through a sorted array of claims to see 
     for (const [k, v] of Object.entries(manifest)) {
         if (v === mod.name) {
             manifest[k] = undefined
@@ -544,7 +570,7 @@ export async function unMountMod(mod) {
 
     let config = readConfig()
     let modIndex = getModIndex(config, mod.name)
-    config.mountManifest = manifest
+    //config.mountManifest = manifest
     config.mods[modIndex].mounted = false
     config.mods[modIndex].claims = undefined
     updateConfig(config)
@@ -587,7 +613,7 @@ export async function mountBaseContent() {
     }))
 
     return new Promise(function (resolve, reject) {
-        emitter.on("end", () => resolve())
+        emitter.once("end", () => resolve())
     })
 }
 
@@ -606,17 +632,19 @@ export async function mountMod(mod, mounted) {
     let manifestDiff = {}
     let claims = {}
     let myPriority = getModLoadOrder(mod)
+    let config = readConfig()
 
     for (const [k, v] of Object.entries(modContents)) {
         claims[k] = false
 
         // If the mounted file has conflict
         if (manifest[k]) {
-            let ownerMod = mods[manifest[k]]
+            let ownerMod = mods[getModIndex(config, manifest[k])]
 
-            if (ownerMod) {
+            if (ownerMod && ownerMod.name !== mod.name) {
                 // If the owner mod has greater or (equal to load order - however equal to should never happen ideally)
                 if (getModLoadOrder(ownerMod) >= myPriority) {
+                    claims[k] = false
                     continue
                 }
             }
@@ -645,11 +673,11 @@ export async function mountMod(mod, mounted) {
         }))
 
         return new Promise(function (resolve, reject) {
-            emitter.on("end", () => resolve())
+            emitter.once("end", () => resolve())
         })
     })()
 
-    let config = readConfig()
+    config = readConfig()
     let modIndex = getModIndex(config, mod.name)
     config.mountManifest = manifest
     config.mods[modIndex].mounted = true
